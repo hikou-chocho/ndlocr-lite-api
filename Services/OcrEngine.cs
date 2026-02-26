@@ -266,7 +266,7 @@ public class OcrEngine
 
         float[] charCountsFlat;
         if (_deimHasCharCounts)
-            charCountsFlat = outputList[3].AsEnumerable<float>().ToArray();
+            charCountsFlat = GetCharCounts(outputList[3]);
         else
             charCountsFlat = Enumerable.Repeat(100.0f, scoresFlat.Length).ToArray();
 
@@ -428,11 +428,23 @@ public class OcrEngine
     {
         return ov.ElementType switch
         {
-            TensorElementType.Int64  => ov.AsEnumerable<long>().ToArray(),
-            TensorElementType.Int32  => ov.AsEnumerable<int>().Select(v => (long)v).ToArray(),
-            TensorElementType.Float  => ov.AsEnumerable<float>().Select(v => (long)v).ToArray(),
+            TensorElementType.Int64 => ov.AsEnumerable<long>().ToArray(),
+            TensorElementType.Int32 => ov.AsEnumerable<int>().Select(v => (long)v).ToArray(),
+            TensorElementType.Float => ov.AsEnumerable<float>().Select(v => (long)v).ToArray(),
             _ => throw new InvalidOperationException(
                      $"Unsupported class_ids element type: {ov.ElementType}")
+        };
+    }
+
+    private static float[] GetCharCounts(DisposableNamedOnnxValue ov)
+    {
+        return ov.ElementType switch
+        {
+            TensorElementType.Float => ov.AsEnumerable<float>().ToArray(),
+            TensorElementType.Int64 => ov.AsEnumerable<long>().Select(v => (float)v).ToArray(),
+            TensorElementType.Int32 => ov.AsEnumerable<int>().Select(v => (float)v).ToArray(),
+            _ => throw new InvalidOperationException(
+                     $"Unsupported char_count element type: {ov.ElementType}")
         };
     }
 
