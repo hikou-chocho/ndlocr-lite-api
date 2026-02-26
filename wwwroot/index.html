@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ndlocr-lite OCR</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #f4f6f9;
+      color: #222;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #1e2a3a;
+      color: #fff;
+      padding: 14px 24px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ---- 左パネル: 設定 + アップロード ---- */
+    .panel-left {
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+      padding: 16px;
+    }
+
+    .card h2 {
+      font-size: .85rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    /* ドロップゾーン */
+    #drop-zone {
+      border: 2px dashed #b0bec5;
+      border-radius: 8px;
+      padding: 28px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      user-select: none;
+    }
+    #drop-zone.drag-over {
+      border-color: #3f8ef7;
+      background: #eef5ff;
+    }
+    #drop-zone svg { color: #90a4ae; margin-bottom: 8px; }
+    #drop-zone p { font-size: .9rem; color: #546e7a; }
+    #drop-zone p strong { color: #3f8ef7; }
+    #file-input { display: none; }
+
+    #file-name {
+      font-size: .8rem;
+      color: #555;
+      margin-top: 6px;
+      word-break: break-all;
+    }
+
+    /* 設定行 */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .setting-row label { font-size: .9rem; color: #444; white-space: nowrap; }
+    .setting-row input[type=number] {
+      width: 72px;
+      padding: 5px 8px;
+      border: 1px solid #cfd8dc;
+      border-radius: 5px;
+      font-size: .9rem;
+      text-align: center;
+    }
+
+    /* 送信ボタン */
+    #btn-run {
+      width: 100%;
+      padding: 10px;
+      background: #3f8ef7;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    #btn-run:hover:not(:disabled) { background: #2c7ae0; }
+    #btn-run:disabled { background: #90bff9; cursor: default; }
+
+    /* 進捗 */
+    #status {
+      font-size: .85rem;
+      min-height: 1.2em;
+      color: #555;
+      text-align: center;
+    }
+    #status.error { color: #e53935; font-weight: 600; }
+
+    /* ---- 右上: 画像プレビュー ---- */
+    .panel-preview {
+      position: relative;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      min-height: 240px;
+    }
+    #preview-wrap {
+      position: relative;
+      display: inline-block;
+      max-width: 100%;
+    }
+    #preview-img {
+      display: block;
+      max-width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      border-radius: 4px;
+    }
+    #bbox-canvas {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none;
+    }
+    #placeholder-msg {
+      color: #b0bec5;
+      font-size: .9rem;
+      text-align: center;
+      padding: 24px;
+    }
+
+    /* ---- 右下: 結果 ---- */
+    .panel-result {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.1);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .result-tabs {
+      display: flex;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .result-tabs button {
+      padding: 10px 18px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: .9rem;
+      color: #666;
+      border-bottom: 2px solid transparent;
+      transition: color .15s, border-color .15s;
+    }
+    .result-tabs button.active {
+      color: #3f8ef7;
+      border-bottom-color: #3f8ef7;
+      font-weight: 600;
+    }
+
+    .tab-content { display: none; flex: 1; overflow: auto; padding: 14px; }
+    .tab-content.active { display: flex; flex-direction: column; }
+
+    /* 全文テキスト */
+    #full-text {
+      flex: 1;
+      font-family: "BIZ UDGothic", "Noto Sans JP", monospace;
+      font-size: .95rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-all;
+      border: 1px solid #eceff1;
+      border-radius: 4px;
+      padding: 10px;
+      background: #fafafa;
+      min-height: 120px;
+      resize: vertical;
+    }
+    #copy-btn {
+      align-self: flex-end;
+      margin-top: 8px;
+      padding: 5px 14px;
+      border: 1px solid #cfd8dc;
+      border-radius: 5px;
+      background: #fff;
+      font-size: .82rem;
+      cursor: pointer;
+    }
+    #copy-btn:hover { background: #f5f5f5; }
+
+    /* 行テーブル */
+    .lines-table-wrap { overflow: auto; }
+    #lines-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .85rem;
+    }
+    #lines-table th {
+      background: #f5f7fa;
+      text-align: left;
+      padding: 7px 10px;
+      border-bottom: 2px solid #e0e0e0;
+      white-space: nowrap;
+      color: #555;
+    }
+    #lines-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #eceff1;
+      vertical-align: top;
+    }
+    #lines-table tr:hover td { background: #f0f7ff; }
+    #lines-table .line-text { word-break: break-all; }
+    #lines-table .bbox-cell { white-space: nowrap; color: #78909c; font-family: monospace; }
+
+    /* 行数バッジ */
+    .lines-count {
+      font-size: .78rem;
+      color: #90a4ae;
+      padding: 6px 14px;
+      border-top: 1px solid #eceff1;
+    }
+
+    @media (max-width: 768px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+      }
+      .panel-left { grid-row: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<header>ndlocr-lite OCR <span style="font-weight:300;font-size:.85rem;margin-left:8px;">v1.0</span></header>
+
+<main>
+  <!-- 左パネル -->
+  <div class="panel-left">
+    <div class="card">
+      <h2>画像をアップロード</h2>
+
+      <div id="drop-zone">
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z"/>
+        </svg>
+        <p><strong>クリック</strong>またはドラッグ&amp;ドロップ</p>
+        <p>PNG / JPEG（最大 10MB・3000×3000px）</p>
+      </div>
+      <input type="file" id="file-input" accept=".png,.jpg,.jpeg,image/png,image/jpeg">
+      <p id="file-name"></p>
+    </div>
+
+    <div class="card">
+      <h2>設定</h2>
+      <div class="setting-row">
+        <label for="min-line-height">最小行高さ (minLineHeightPx)</label>
+        <input type="number" id="min-line-height" value="8" min="1" max="200">
+      </div>
+    </div>
+
+    <button id="btn-run" disabled>OCR 実行</button>
+    <p id="status"></p>
+  </div>
+
+  <!-- 右上: プレビュー -->
+  <div class="panel-preview" id="preview-panel">
+    <p id="placeholder-msg">画像をアップロードするとここに表示されます</p>
+    <div id="preview-wrap" style="display:none">
+      <img id="preview-img" alt="プレビュー">
+      <canvas id="bbox-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- 右下: 結果 -->
+  <div class="panel-result">
+    <div class="result-tabs">
+      <button class="active" data-tab="tab-text">全文テキスト</button>
+      <button data-tab="tab-lines">行一覧</button>
+    </div>
+
+    <div id="tab-text" class="tab-content active">
+      <textarea id="full-text" readonly placeholder="OCR 結果がここに表示されます"></textarea>
+      <button id="copy-btn">コピー</button>
+    </div>
+
+    <div id="tab-lines" class="tab-content">
+      <div class="lines-table-wrap">
+        <table id="lines-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>テキスト</th>
+              <th>X</th>
+              <th>Y</th>
+              <th>W</th>
+              <th>H</th>
+            </tr>
+          </thead>
+          <tbody id="lines-tbody"></tbody>
+        </table>
+      </div>
+      <p class="lines-count" id="lines-count"></p>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const dropZone     = document.getElementById('drop-zone');
+  const fileInput    = document.getElementById('file-input');
+  const fileNameEl   = document.getElementById('file-name');
+  const btnRun       = document.getElementById('btn-run');
+  const statusEl     = document.getElementById('status');
+  const previewWrap  = document.getElementById('preview-wrap');
+  const placeholderMsg = document.getElementById('placeholder-msg');
+  const previewImg   = document.getElementById('preview-img');
+  const bboxCanvas   = document.getElementById('bbox-canvas');
+  const fullTextEl   = document.getElementById('full-text');
+  const copyBtn      = document.getElementById('copy-btn');
+  const linesTbody   = document.getElementById('lines-tbody');
+  const linesCount   = document.getElementById('lines-count');
+  const minLineInput = document.getElementById('min-line-height');
+
+  let currentFile = null;
+  let lastResult  = null;
+
+  // --- タブ切り替え ---
+  document.querySelectorAll('.result-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.result-tabs button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // --- ファイル選択 ---
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) setFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) setFile(f);
+  });
+
+  function setFile(file) {
+    currentFile = file;
+    fileNameEl.textContent = file.name;
+    btnRun.disabled = false;
+    setStatus('');
+
+    // プレビュー表示
+    const url = URL.createObjectURL(file);
+    previewImg.onload = () => {
+      clearCanvas();
+      URL.revokeObjectURL(url);
+    };
+    previewImg.src = url;
+    previewWrap.style.display = 'inline-block';
+    placeholderMsg.style.display = 'none';
+  }
+
+  // --- OCR 実行 ---
+  btnRun.addEventListener('click', async () => {
+    if (!currentFile) return;
+
+    btnRun.disabled = true;
+    setStatus('推論中…');
+    clearCanvas();
+    fullTextEl.value = '';
+    linesTbody.innerHTML = '';
+    linesCount.textContent = '';
+
+    const formData = new FormData();
+    formData.append('file', currentFile);
+    formData.append('minLineHeightPx', minLineInput.value);
+
+    try {
+      const res = await fetch('/v1/ocr', { method: 'POST', body: formData });
+      const json = await res.json();
+
+      if (!res.ok) {
+        setStatus(errorMessage(json.error), true);
+        btnRun.disabled = false;
+        return;
+      }
+
+      lastResult = json;
+      displayResult(json);
+      setStatus(`完了: ${json.lines.length} 行検出`);
+    } catch (e) {
+      setStatus('通信エラー: ' + e.message, true);
+    } finally {
+      btnRun.disabled = false;
+    }
+  });
+
+  // --- 結果表示 ---
+  function displayResult(result) {
+    // 全文テキスト
+    fullTextEl.value = result.text;
+
+    // 行テーブル
+    linesTbody.innerHTML = '';
+    result.lines.forEach((line, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td class="line-text">${escHtml(line.text)}</td>
+        <td class="bbox-cell">${line.bbox.x}</td>
+        <td class="bbox-cell">${line.bbox.y}</td>
+        <td class="bbox-cell">${line.bbox.w}</td>
+        <td class="bbox-cell">${line.bbox.h}</td>`;
+      tr.addEventListener('mouseenter', () => highlightBox(i));
+      tr.addEventListener('mouseleave', () => drawBboxes(result.lines));
+      linesTbody.appendChild(tr);
+    });
+    linesCount.textContent = `${result.lines.length} 件`;
+
+    // bbox オーバーレイ
+    drawBboxes(result.lines);
+  }
+
+  // --- bbox 描画 ---
+  function drawBboxes(lines, highlightIdx = -1) {
+    const img = previewImg;
+    const canvas = bboxCanvas;
+
+    // 表示サイズに合わせてキャンバスをリサイズ
+    canvas.width  = img.clientWidth;
+    canvas.height = img.clientHeight;
+    canvas.style.width  = img.clientWidth  + 'px';
+    canvas.style.height = img.clientHeight + 'px';
+
+    const scaleX = img.clientWidth  / img.naturalWidth;
+    const scaleY = img.clientHeight / img.naturalHeight;
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    lines.forEach((line, i) => {
+      const { x, y, w, h } = line.bbox;
+      const px = x * scaleX, py = y * scaleY;
+      const pw = w * scaleX, ph = h * scaleY;
+
+      const isHl = (i === highlightIdx);
+      ctx.strokeStyle = isHl ? '#ff5722' : '#3f8ef7';
+      ctx.lineWidth   = isHl ? 2.5 : 1.5;
+      ctx.strokeRect(px, py, pw, ph);
+
+      if (isHl) {
+        ctx.fillStyle = 'rgba(255,87,34,.12)';
+        ctx.fillRect(px, py, pw, ph);
+      }
+
+      // 行番号ラベル
+      ctx.fillStyle = isHl ? '#ff5722' : '#3f8ef7';
+      ctx.font = `bold ${Math.max(10, ph * 0.55)}px sans-serif`;
+      ctx.fillText(String(i + 1), px + 2, py + ph - 3);
+    });
+  }
+
+  function highlightBox(idx) {
+    if (lastResult) drawBboxes(lastResult.lines, idx);
+  }
+
+  function clearCanvas() {
+    const ctx = bboxCanvas.getContext('2d');
+    ctx.clearRect(0, 0, bboxCanvas.width, bboxCanvas.height);
+  }
+
+  // ウィンドウリサイズ時に再描画
+  window.addEventListener('resize', () => {
+    if (lastResult) drawBboxes(lastResult.lines);
+  });
+
+  // --- コピー ---
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(fullTextEl.value).then(() => {
+      copyBtn.textContent = 'コピー済み ✓';
+      setTimeout(() => copyBtn.textContent = 'コピー', 1500);
+    });
+  });
+
+  // --- ユーティリティ ---
+  function setStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? 'error' : '';
+  }
+
+  function errorMessage(code) {
+    const map = {
+      image_too_large:   '画像サイズまたはファイルサイズが制限を超えています',
+      blank_image:       '白紙画像として判定されました',
+      no_lines_detected: 'テキスト行が検出されませんでした',
+      inference_error:   '推論処理に失敗しました',
+    };
+    return map[code] || `エラー: ${code}`;
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+})();
+</script>
+</body>
+</html>
